@@ -216,7 +216,8 @@ export const generateScope = async (
         parsedResult.rooms, 
         parsedResult.metadata.severity_score, 
         scopeContext,
-        parsedResult.metadata.loss_type_inference
+        parsedResult.metadata.loss_type_inference,
+        jobType // Pass job type for ESRVD logic
       );
 
       return parsedResult;
