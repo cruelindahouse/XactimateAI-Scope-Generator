@@ -1,0 +1,8 @@
+{
+  "name": "Xactimate AI Scope Generator",
+  "description": "AI-powered restoration scope analysis tool. Transforms 45 minutes of manual inspection into 2 minutes of analysis, generating accurate Xactimate codes for fast manual entry.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
