@@ -106,6 +106,17 @@ export const getSystemInstruction = (scopePhase: string): string => {
     - For Drying Equipment (WTR DHU, WTR DRY), calculate quantity as: Number of Units * 3 Days.
     - Example: If 2 fans are needed, Quantity = 6. (2 units * 3 days).
     - DO NOT output quantity '1' for equipment unless it is for 1 unit for less than a day. Standard is 3 days.
+
+    *** TIER 1 PROFIT RULES (MANDATORY) ***
+    1. **THE "HEPA" RULE (Air Quality):**
+       - Trigger: If you generate ANY item with category 'DMO' or 'WTR' (demolition actions).
+       - Action: Add 'WTR HEPAVAL' (HEPA Vacuuming) to the 'General Conditions' room.
+       - Quantity: Estimate TOTAL SF of all demolition.
+    
+    2. **THE "CONTAINMENT" RULE (Safety):**
+       - Trigger: If Severity Score >= 6 OR Loss Type involves "Mold" or "Sewage".
+       - Action: Add 'WTR BARR' (Containment Barrier) to 'General Conditions'. Qty = 150 SF.
+       - Chained Action: If BARR is added, MUST add 'WTR NAFAN' (Negative Air Fan). Qty = 3 (1 unit * 3 Days).
     `;
   } else if (scopePhase === 'reconstruction') {
     instruction += `
@@ -129,5 +140,5 @@ export const getSystemInstruction = (scopePhase: string): string => {
 export const buildUserPrompt = (description: string, jobType: string) => `
 CONTEXT: "${description}"
 JOB TYPE: ${jobType} (${jobType === 'R' ? 'Reconstruction' : 'Emergency Mitigation'})
-TASK: Analyze Visuals/Audio. Determine Loss Type (Water vs Fire). Calibrate Severity. Generate Scope using Text Protocol.
+TASK: Analyze Visuals/Audio. Determine Loss Type (Water vs Fire). Generate Scope using Text Protocol.
 `;
