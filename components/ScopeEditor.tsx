@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineItem, RoomData, ActivityCode } from '../types';
-import { Trash2, Plus, Save, X, CheckCircle2, AlertTriangle, Info, Copy, CheckSquare, Square, Printer, ClipboardCopy, Star, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Trash2, Plus, Save, X, CheckCircle2, AlertTriangle, Info, Copy, CheckSquare, Square, Printer, ClipboardCopy, Star, ThumbsUp, ThumbsDown, Clock } from 'lucide-react';
 import { getCatDefinition } from '../utils/catCodeData';
 import { useEditTracking } from '../hooks/useEditTracking';
 
@@ -244,7 +244,14 @@ const ScopeEditor: React.FC<ScopeEditorProps> = ({ initialRooms, onSave }) => {
                      {isRoomComplete ? <CheckSquare size={24} /> : <Square size={24} />}
                    </button>
                    <div>
-                      <h3 className="text-lg font-bold text-slate-800">{room.name}</h3>
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        {room.name}
+                        {room.timestamp_in && (
+                          <span className="inline-flex items-center gap-1 text-xs font-mono font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+                             <Clock size={12} /> {room.timestamp_in}
+                          </span>
+                        )}
+                      </h3>
                       <p className="text-xs text-slate-500 hidden md:block italic max-w-xl truncate">
                         {room.narrative_synthesis}
                       </p>

@@ -44,11 +44,23 @@ const parseTextResponse = (text: string): { rooms: RoomData[], metadata: Project
       } else if (line.startsWith('ROOM::')) {
         const parts = line.substring(6).split('|');
         const name = parts[0]?.trim() || "Unknown Room";
-        const narrative = parts[1]?.trim() || "";
+        
+        // Protocol V2: ROOM::Name|Timestamp|Narrative
+        let timestamp = "";
+        let narrative = "";
+
+        if (parts.length >= 3) {
+            timestamp = parts[1]?.trim() || "";
+            narrative = parts[2]?.trim() || "";
+        } else {
+            // Fallback for older format or transition
+            narrative = parts[1]?.trim() || "";
+        }
         
         currentRoom = {
           id: crypto.randomUUID(),
           name,
+          timestamp_in: timestamp, // Mapped to RoomData
           narrative_synthesis: narrative,
           flagged_issues: [],
           items: [] // Raw items, will be sorted later

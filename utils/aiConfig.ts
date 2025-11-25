@@ -39,45 +39,40 @@ You must assign a specific single-character Activity Code to every item.
     * Visible Wood -> FCW LAM (HIGH).
     * Unsure? -> Use expensive option (e.g. FCW) + **LOW CONFIDENCE**.
 
-### 5. LOSS TYPE PROTOCOLS (STRICT MODES)
-Before generating ANY line items, determine the loss type and adhere to its protocol.
+### 5. ANTI-HALLUCINATION PROTOCOLS (STRICT)
+* **THE "THRONE RULE" (ROOM NAMING):**
+    * You are FORBIDDEN from naming a room "Bathroom" unless you positively identify a **TOILET**.
+    * Sink + Washer = "Laundry Room".
+    * Sink + Shelves = "Utility Room".
+    * Toilet = "Bathroom".
+* **SEVERITY REALITY CHECK:**
+    * **Default Assumption:** Category 1 or 2 (Clean/Grey Water).
+    * **Reset Baseline:** Standard basement floods (wet carpet/drywall cuts) are Severity 4-5.
+    * **Rule:** Only go to Severity 7+ if explicit sewage, heavy mold, or structural danger is visible.
 
-#### MODE A: WATER LOSS PROTOCOL (MITIGATION FIRST)
-**Trigger:** Loss is "Water", "Flood", "Leak", or "Pipe Burst".
-**Philosophy:** "Save, Dry, & Sanitize." Do not demolish unless absolutely necessary.
-1.  **FORBIDDEN TERMS:** NEVER use: \`SOOT\`, \`ODR\`, \`SEAL\`, \`ASH\`.
-2.  **PRIORITY ACTIONS:**
-    *   **Extraction:** Start with \`WTR EXTW\` if water is visible.
-    *   **Sanitization:** Always apply antimicrobial \`WTR GRMIC\`.
-    *   **Drying:** Add \`WTR DHU\` (Dehu) and \`WTR DRY\` (Air Mover) for wet areas.
-    *   **Detach & Reset (D&R):** Fixtures (Vanities/Toilets) should be D&R (\`&\`) to save them. Only DMO if broken.
-    *   **Drywall:** Flood cut only (2ft or 4ft). DO NOT demo full walls unless saturated.
+### 6. SEVERITY CALIBRATION (STRICT)
+You must calibrate your severity score (1-10) using this scale. DO NOT OVER-ESTIMATE.
+* **Score 1-3 (Minor):** Surface water only. Extraction + Equipment. **NO Demolition.**
+* **Score 4-6 (Moderate):** Water wicking into walls. Baseboards removed, some 2ft flood cuts. Carpet pad removed. **(Most common water loss)**.
+* **Score 7-8 (Severe):** Standing water >24hrs, Cat 3 (Sewage), or Mold visible. Massive demolition (>4ft cuts), insulation wet, subfloor affected.
+* **Score 9-10 (Catastrophic):** Structural compromise, fire charring, house uninhabitable.
 
-#### MODE B: FIRE LOSS PROTOCOL (RECONSTRUCTION FIRST)
-**Trigger:** Loss is "Fire", "Smoke", or "Soot".
-**Philosophy:** "Remove, Seal, & Replace."
-1.  **PRIORITY ACTIONS:**
-    *   **Demolition:** Aggressive removal of charred materials (\`DMO\`).
-    *   **Cleaning:** Chemical sponging/soot removal (\`CLN SOOT\`).
-    *   **Sealing:** Seal framing to lock odor (\`PNT S\`).
-    *   **HVAC:** Duct cleaning is mandatory (\`CLN HVAC\`).
-
-### 6. OUTPUT FORMAT (TEXT STREAM PROTOCOL)
+### 7. OUTPUT FORMAT (TEXT STREAM PROTOCOL)
 **DO NOT USE JSON.** Output data in this specific line-based format to avoid syntax errors.
 
 **Format Structure:**
 1. Start with Metadata:
 META::LossType|Severity(1-10)|Confidence(High/Med/Low)|Summary
 
-2. For each Room:
-ROOM::RoomName|Narrative (Max 1 sentence)
+2. For each Room (TIMESTAMP IS MANDATORY):
+ROOM::RoomName|Timestamp(MM:SS)|Narrative (Max 1 sentence)
 
 3. For each Item:
 ITEM::CAT|SEL|ACT|QTY|UNIT|CONF|DESCRIPTION|REASONING
 
 **Example Output:**
-META::Water|8|High|Pipe burst affecting kitchen.
-ROOM::Kitchen|Standing water on vinyl floor, cabinets swollen.
+META::Water|5|High|Pipe burst affecting kitchen.
+ROOM::Kitchen|00:45|Standing water on vinyl floor, cabinets swollen.
 ITEM::WTR|EXTW|+|150|SF|High|Water extraction|Visible water.
 ITEM::DMO|CAB|-|10|LF|High|Tear out wet cabinets|Swollen toe kicks.
 ITEM::CAB|LOW|+|10|LF|Medium|Replace lower cabinets|Required after demo.
@@ -134,5 +129,5 @@ export const getSystemInstruction = (scopePhase: string): string => {
 export const buildUserPrompt = (description: string, jobType: string) => `
 CONTEXT: "${description}"
 JOB TYPE: ${jobType} (${jobType === 'R' ? 'Reconstruction' : 'Emergency Mitigation'})
-TASK: Analyze Visuals/Audio. Determine Loss Type (Water vs Fire). Generate Scope using Text Protocol.
+TASK: Analyze Visuals/Audio. Determine Loss Type (Water vs Fire). Calibrate Severity. Generate Scope using Text Protocol.
 `;
