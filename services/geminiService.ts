@@ -5,6 +5,7 @@ import { LineItem, RoomData, ProjectMetadata, ExtractedData, JobType } from "../
 import { sanitizeLineItem, sortScopeItems } from "../utils/xactimateRules";
 import { getSystemInstruction, buildUserPrompt } from "../utils/aiConfig";
 import { enrichScopeWithLogistics } from "../utils/logisticsEngine";
+import { sanitizeRooms } from "../utils/roomSanitizer";
 
 const MODEL_NAME = "gemini-2.5-flash";
 const API_KEY = process.env.API_KEY;
@@ -211,7 +212,20 @@ export const generateScope = async (
       // 5. Parse Text Protocol
       const parsedResult = parseTextResponse(rawText);
 
-      // 6. LOGISTICS ENGINE ENRICHMENT
+      // 6. ROOM SANITIZER - Deduplicate ghost rooms from camera jumps
+      const sanitized = sanitizeRooms(parsedResult.rooms);
+      parsedResult.rooms = sanitized.rooms;
+      
+      // Log warnings for debugging (visible in browser console)
+      if (sanitized.warnings.length > 0) {
+        console.log("🔍 Room Sanitizer Report:");
+        sanitized.warnings.forEach(w => console.log(`   ${w}`));
+      }
+      if (sanitized.mergeCount > 0) {
+        console.log(`✅ Deduplicated ${sanitized.mergeCount} ghost room(s)`);
+      }
+
+      // 7. LOGISTICS ENGINE ENRICHMENT (DO NOT MODIFY - Golden Standard)
       parsedResult.rooms = enrichScopeWithLogistics(
         parsedResult.rooms, 
         parsedResult.metadata.severity_score, 
