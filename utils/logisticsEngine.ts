@@ -1,4 +1,3 @@
-
 import { RoomData, LineItem, ActivityCode } from '../types';
 
 /**
@@ -30,6 +29,7 @@ const createLogisticsItem = (cat: string, sel: string, desc: string, qty: number
  * 5. Containment: Demolition OR High Severity OR Mold = Barrier + Negative Air.
  * 6. Equipment Setup: If drying equipment is present.
  * 7. Emergency Service: If mitigation job.
+ * 8. Floor Protection (Scorched Earth): If demo/extraction, protect path.
  */
 export const enrichScopeWithLogistics = (
   rooms: RoomData[], 
@@ -67,7 +67,7 @@ export const enrichScopeWithLogistics = (
 
   // --- LOGIC RULES ---
 
-  // RULE 1: DEBRIS REMOVAL (The "Volume" Rule)
+  // CALCULATE TOTAL DEMO VOLUME
   let totalDemoQty = 0;
   rooms.forEach(r => {
     r.items.forEach(i => {
@@ -78,6 +78,7 @@ export const enrichScopeWithLogistics = (
     });
   });
 
+  // RULE 1: DEBRIS REMOVAL (The "Volume" Rule)
   if (totalDemoQty > 500) {
     // Significant Demo -> 30 Yard Dumpster
     if (!existingCodes.has('DMO DTRLR')) {
@@ -121,6 +122,7 @@ export const enrichScopeWithLogistics = (
   // RULE 3: SUPERVISION (The "Complexity" Rule)
   const uniqueCats = new Set<string>();
   rooms.forEach(r => r.items.forEach(i => {
+    // Exclude General cats from complexity count
     if (!['DMO', 'CLN', 'TMP', 'LAB', 'WTR'].includes(i.category)) {
       uniqueCats.add(i.category);
     }
@@ -199,7 +201,6 @@ export const enrichScopeWithLogistics = (
   }
 
   // RULE 7: WTR ESRVD - Emergency Service Call
-  // Trigger: If Job Type is 'E' (Emergency) OR WTR items present
   const isMitigationJob = jobType === 'E' || rooms.some(r => r.items.some(i => i.category === 'WTR'));
   
   if (isMitigationJob && !existingCodes.has('WTR ESRVD')) {
@@ -209,6 +210,20 @@ export const enrichScopeWithLogistics = (
       'Emergency service call - during business hours', 
       1, 
       'EA'
+    ));
+  }
+
+  // RULE 8: FLOOR PROTECTION (The "Scorched Earth" Rule - APPROVED BY OPUS)
+  // Logic: If we are doing ANY work (Demo or Mitigation), we must protect the walkway.
+  const workPerformed = totalDemoQty > 0 || isMitigationJob;
+  
+  if (workPerformed && !existingCodes.has('DMO MASKFL')) {
+      newItems.push(createLogisticsItem(
+      'DMO', 
+      'MASKFL', 
+      'Masking - floor - per square foot (Walkway protection)', 
+      150, // Standard allowance for entry/exit path (approx 50ft x 3ft)
+      'SF'
     ));
   }
 
