@@ -20,23 +20,26 @@ const createLogisticsItem = (cat: string, sel: string, desc: string, qty: number
 };
 
 /**
+ * LOGISTICS ENGINE v13 (PRODUCTION READY)
  * Deterministically adds General Conditions based on Smart Thresholds.
  * * Rules:
- * 1. Debris: >500 units = Dumpster; <500 units = Pickup Truck.
+ * 1. Debris: Volume based (Dumpster vs Pickup).
  * 2. Toilet: Fire Loss OR Severity >= 9 only.
- * 3. Supervision: 4 hours per unique trade if > 2 trades exist.
+ * 3. Supervision: Complexity based (>2 trades).
  * 4. Fencing: Exterior + High Severity.
- * 5. Containment: Demolition OR High Severity OR Mold = Barrier + Negative Air.
+ * 5. Containment: Demolition OR High Severity OR Mold.
  * 6. Equipment Setup: If drying equipment is present.
  * 7. Emergency Service: If mitigation job.
- * 8. Floor Protection (Scorched Earth): If demo/extraction, protect path.
+ * 8. Floor Protection: If demo/extraction (Scorched Earth).
+ * 9. Content Manipulation: If mitigation + clutter detected (>3 items/room).
+ * 10. Implicit Demolition: If installing materials, assume removal of old.
  */
 export const enrichScopeWithLogistics = (
   rooms: RoomData[], 
   severity: number, 
   context: string = 'Interior',
   lossType: string = 'Water',
-  jobType: string = 'R' // Added Job Type for emergency service logic
+  jobType: string = 'R' 
 ): RoomData[] => {
   const newRooms = [...rooms];
   
@@ -65,166 +68,125 @@ export const enrichScopeWithLogistics = (
   const existingCodes = new Set(generalRoom.items.map(i => i.code));
   const newItems: LineItem[] = [];
 
-  // --- LOGIC RULES ---
-
-  // CALCULATE TOTAL DEMO VOLUME
+  // --- DATA GATHERING ---
   let totalDemoQty = 0;
+  let implicitDemoQty = 0; // RULE 10: Implicit demo from install items
+  const isMitigationJob = jobType === 'E' || rooms.some(r => r.items.some(i => i.category === 'WTR'));
+  let roomsWithContents = 0;
+
   rooms.forEach(r => {
     r.items.forEach(i => {
-      // Count item if activity is REMOVE ('-') OR category is DMO
+      // Rule 1 Data: Explicit Demo Volume
       if (i.activity === '-' || i.activity === ActivityCode.REMOVE || i.category === 'DMO' || i.category === 'DMG') {
         totalDemoQty += (i.quantity || 0);
       }
+      
+      // RULE 10 Data: Implicit Demo (Install implies prior removal)
+      // Flooring install implies flooring removal
+      if (['FCW', 'FCV', 'FCC', 'FCT'].includes(i.category) && i.activity === '+') {
+        implicitDemoQty += (i.quantity || 0);
+      }
+      // Drywall install implies drywall removal  
+      if (i.category === 'DRY' && i.activity === '+') {
+        implicitDemoQty += (i.quantity || 0);
+      }
+      // Cabinet install implies cabinet removal
+      if (i.category === 'CAB' && i.activity === '+') {
+        implicitDemoQty += 20; // ~20 SF per cabinet unit
+      }
     });
+
+    // Rule 9 Data: Contents Check (Ignore General Conditions)
+    // If a room has >3 items, we assume we had to move stuff to do the work.
+    if (!r.name.toUpperCase().includes('GENERAL') && r.items.length >= 3) {
+        roomsWithContents++;
+    }
   });
 
-  // RULE 1: DEBRIS REMOVAL (The "Volume" Rule)
+  // RULE 10: Add implicit demo to total for downstream rules
+  totalDemoQty += implicitDemoQty;
+
+  // --- LOGIC RULES ---
+
+  // RULE 1: DEBRIS REMOVAL
   if (totalDemoQty > 500) {
-    // Significant Demo -> 30 Yard Dumpster
     if (!existingCodes.has('DMO DTRLR')) {
-       newItems.push(createLogisticsItem(
-        'DMO', 
-        'DTRLR', 
-        'Dumpster load - approx. 30 yards, inc. dump fees', 
-        1, 
-        'EA'
-      ));
+       newItems.push(createLogisticsItem('DMO', 'DTRLR', 'Dumpster load - approx. 30 yards, inc. dump fees', 1, 'EA'));
     }
   } else if (totalDemoQty > 0) {
-    // Minor Demo -> Pickup/Trailer Load
     if (!existingCodes.has('DMO DBR')) {
-      // Calculate loads: 1 load per 100 units approx, min 1
       const loads = Math.max(1, Math.ceil(totalDemoQty / 150));
-      newItems.push(createLogisticsItem(
-        'DMO', 
-        'DBR', 
-        'Debris Removal - pickup or trailer load', 
-        loads, 
-        'EA'
-      ));
+      newItems.push(createLogisticsItem('DMO', 'DBR', 'Debris Removal - pickup or trailer load', loads, 'EA'));
     }
   }
 
-  // RULE 2: PORTABLE TOILET (The "Habitability" Rule)
+  // RULE 2: PORTABLE TOILET
   const isFire = lossType.toLowerCase().includes('fire') || lossType.toLowerCase().includes('smoke');
   const isCatastrophic = severity >= 9;
-
   if ((isFire || isCatastrophic) && !existingCodes.has('TMP TLT')) {
-    newItems.push(createLogisticsItem(
-      'TMP', 
-      'TLT', 
-      'Portable toilet rental - per month', 
-      1, 
-      'MO'
-    ));
+    newItems.push(createLogisticsItem('TMP', 'TLT', 'Portable toilet rental - per month', 1, 'MO'));
   }
 
-  // RULE 3: SUPERVISION (The "Complexity" Rule)
+  // RULE 3: SUPERVISION
   const uniqueCats = new Set<string>();
   rooms.forEach(r => r.items.forEach(i => {
-    // Exclude General cats from complexity count
     if (!['DMO', 'CLN', 'TMP', 'LAB', 'WTR'].includes(i.category)) {
       uniqueCats.add(i.category);
     }
   }));
-  
   if (uniqueCats.size > 2 && !existingCodes.has('LAB SUP')) {
     const hours = uniqueCats.size * 4;
-    newItems.push(createLogisticsItem(
-      'LAB', 
-      'SUP', 
-      `Residential Supervision / Project Management (${uniqueCats.size} trades)`, 
-      hours, 
-      'HR'
-    ));
+    newItems.push(createLogisticsItem('LAB', 'SUP', `Residential Supervision (${uniqueCats.size} trades)`, hours, 'HR'));
   }
 
   // RULE 4: TEMPORARY FENCING
   if (context === 'Exterior' && severity > 7 && !existingCodes.has('TMP FNC')) {
-     newItems.push(createLogisticsItem(
-      'TMP', 
-      'FNC', 
-      'Temporary fencing - chain link - rent per month', 
-      100, 
-      'LF'
-    ));
+     newItems.push(createLogisticsItem('TMP', 'FNC', 'Temporary fencing - chain link', 100, 'LF'));
   }
 
-  // RULE 5: CONTAINMENT & NEGATIVE AIR (The "Profit Gap" Fix)
-  // Trigger: If ANY demolition occurred OR Severity >= 5 OR Mold/Sewage detected.
+  // RULE 5: CONTAINMENT & NEGATIVE AIR
   const needsContainment = totalDemoQty > 0 || severity >= 5 || lossType.toLowerCase().includes('mold') || lossType.toLowerCase().includes('sewage');
-
   if (needsContainment) {
-    // 5.1 Add Barrier
     if (!existingCodes.has('WTR BARR')) {
-       newItems.push(createLogisticsItem(
-        'WTR', 
-        'BARR', 
-        'Containment Barrier - plastic - polyethylene', 
-        150, // Standard allowance
-        'SF'
-      ));
+       newItems.push(createLogisticsItem('WTR', 'BARR', 'Containment Barrier - plastic', 150, 'SF'));
     }
-
-    // 5.2 Add Negative Air Fan (Mandatory with Barrier)
     if (!existingCodes.has('WTR NAFAN')) {
-       newItems.push(createLogisticsItem(
-        'WTR', 
-        'NAFAN', 
-        'Negative air fan/scrubber (24 hr period) - No monitoring', 
-        3, // Standard 3 days
+       newItems.push(createLogisticsItem('WTR', 'NAFAN', 'Negative air fan/scrubber', 3, 'EA'));
+    }
+  }
+
+  // RULE 6: EQUIPMENT SETUP
+  const hasEquipment = rooms.some(r => r.items.some(i => i.category === 'WTR' && ['DHU', 'DRY', 'DHM', 'AFAN'].includes(i.selector.replace(/[^A-Z]/g, ''))));
+  if (hasEquipment && !existingCodes.has('WTR EQ')) {
+    const roomsWithEquip = rooms.filter(r => r.items.some(i => i.category === 'WTR' && ['DHU', 'DRY', 'DHM', 'AFAN'].includes(i.selector.replace(/[^A-Z]/g, '')))).length;
+    const equipHours = Math.max(2, 2 + (roomsWithEquip * 0.5));
+    newItems.push(createLogisticsItem('WTR', 'EQ', 'Equipment setup, take down, and monitoring', equipHours, 'HR'));
+  }
+
+  // RULE 7: EMERGENCY SERVICE CALL
+  if (jobType === 'E' && !existingCodes.has('WTR ESRVD')) {
+      newItems.push(createLogisticsItem('WTR', 'ESRVD', 'Emergency service call - during business hours', 1, 'EA'));
+  }
+
+  // RULE 8: FLOOR PROTECTION (Scorched Earth)
+  // Now also triggers on implicit demo from reconstruction
+  const workPerformed = totalDemoQty > 0 || isMitigationJob;
+  if (workPerformed && !existingCodes.has('DMO MASKFL')) {
+      newItems.push(createLogisticsItem('DMO', 'MASKFL', 'Masking - floor - per square foot (Walkway)', 150, 'SF'));
+  }
+
+  // RULE 9: CONTENT MANIPULATION (The "Missing Link")
+  // Logic: If mitigation job AND rooms have significant items (>3), assume we moved stuff.
+  // Also trigger for reconstruction jobs with significant work
+  const needsContentMove = (isMitigationJob || implicitDemoQty > 100) && roomsWithContents > 0;
+  if (needsContentMove && !existingCodes.has('CON ROOM')) {
+      newItems.push(createLogisticsItem(
+        'CON', 
+        'ROOM', 
+        'Content Manipulation - Average Room (Move & Reset)', 
+        roomsWithContents, 
         'EA'
       ));
-    }
-  }
-
-  // RULE 6: WTR EQ - Equipment Setup (DETERMINISTIC)
-  const hasEquipment = rooms.some(r => 
-    r.items.some(i => 
-      i.category === 'WTR' && ['DHU', 'DRY', 'DHM', 'AFAN'].includes(i.selector.replace(/[^A-Z]/g, ''))
-    )
-  );
-
-  if (hasEquipment && !existingCodes.has('WTR EQ')) {
-    const roomsWithEquip = rooms.filter(r => 
-      r.items.some(i => i.category === 'WTR' && ['DHU', 'DRY', 'DHM', 'AFAN'].includes(i.selector.replace(/[^A-Z]/g, '')))
-    ).length;
-    const equipHours = Math.max(2, 2 + (roomsWithEquip * 0.5));
-    
-    newItems.push(createLogisticsItem(
-      'WTR', 
-      'EQ', 
-      'Equipment setup, take down, and monitoring (hourly charge)', 
-      equipHours, 
-      'HR'
-    ));
-  }
-
-  // RULE 7: WTR ESRVD - Emergency Service Call
-  const isMitigationJob = jobType === 'E' || rooms.some(r => r.items.some(i => i.category === 'WTR'));
-  
-  if (isMitigationJob && !existingCodes.has('WTR ESRVD')) {
-      newItems.push(createLogisticsItem(
-      'WTR', 
-      'ESRVD', 
-      'Emergency service call - during business hours', 
-      1, 
-      'EA'
-    ));
-  }
-
-  // RULE 8: FLOOR PROTECTION (The "Scorched Earth" Rule - APPROVED BY OPUS)
-  // Logic: If we are doing ANY work (Demo or Mitigation), we must protect the walkway.
-  const workPerformed = totalDemoQty > 0 || isMitigationJob;
-  
-  if (workPerformed && !existingCodes.has('DMO MASKFL')) {
-      newItems.push(createLogisticsItem(
-      'DMO', 
-      'MASKFL', 
-      'Masking - floor - per square foot (Walkway protection)', 
-      150, // Standard allowance for entry/exit path (approx 50ft x 3ft)
-      'SF'
-    ));
   }
 
   // Update the room items

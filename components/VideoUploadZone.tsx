@@ -32,8 +32,12 @@ const VideoUploadZone: React.FC<VideoUploadZoneProps> = ({
       const dt = e.dataTransfer as any;
       if (dt.files && dt.files.length > 0) selectedFile = dt.files[0];
     } else {
-      const target = e.target as any;
-      if (target.files && target.files.length > 0) selectedFile = target.files[0];
+      const target = e.target as HTMLInputElement;
+      if (target.files && target.files.length > 0) {
+        selectedFile = target.files[0];
+        // Reset input value to allow re-selecting same file
+        target.value = '';
+      }
     }
 
     if (selectedFile && (selectedFile as File).type.startsWith('video/')) {
@@ -50,7 +54,7 @@ const VideoUploadZone: React.FC<VideoUploadZoneProps> = ({
     try {
       const extractedData = await extractMediaFromVideo(file, (stage, percent) => {
         setProgressLabel(stage);
-        setProgress(Math.round(percent * 100));
+        setProgress(Math.round(percent)); // percent already comes as 0-100
       });
 
       onVideoProcessed(extractedData);
