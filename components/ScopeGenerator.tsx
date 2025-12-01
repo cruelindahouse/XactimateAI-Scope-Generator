@@ -12,19 +12,21 @@ import { Wand2, AlertTriangle, FileText, Home, Copy, ClipboardCheck } from 'luci
 const ScopeGenerator: React.FC = () => {
   const [description, setDescription] = useState('');
   const [scopeContext, setScopeContext] = useState('Interior');
-  const [jobType, setJobType] = useState<JobType>('R'); // Default to Reconstruction
+  const [jobType, setJobType] = useState<JobType>('R'); 
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [rooms, setRooms] = useState<RoomData[]>([]);
   const [metadata, setMetadata] = useState<ProjectMetadata | null>(null);
   const [auditWarnings, setAuditWarnings] = useState<string[]>([]);
-  const [images, setImages] = useState<string[]>([]);
   
+  // Media State
+  const [images, setImages] = useState<string[]>([]);
+  const [audioFiles, setAudioFiles] = useState<File[]>([]); // <--- NEW STATE
   const [videoData, setVideoData] = useState<ExtractedData | null>(null);
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
 
   const handleGenerate = useCallback(async () => {
-    if ((!description && images.length === 0 && !videoData) || isProcessingVideo) return;
-    if (!jobType) return; // Validation
+    if ((!description && images.length === 0 && !videoData && audioFiles.length === 0) || isProcessingVideo) return;
+    if (!jobType) return; 
 
     setStatus(ProcessingStatus.ANALYZING);
     setAuditWarnings([]);
@@ -32,7 +34,15 @@ const ScopeGenerator: React.FC = () => {
     setMetadata(null);
     
     try {
-      const result = await generateScope(description, scopeContext, jobType, images, videoData);
+      const result = await generateScope(
+        description, 
+        scopeContext, 
+        jobType, 
+        images, 
+        videoData,
+        audioFiles // <--- PASSING AUDIO
+      );
+      
       setRooms(result.rooms);
       setMetadata(result.metadata);
       
@@ -45,7 +55,7 @@ const ScopeGenerator: React.FC = () => {
       console.error(error);
       setStatus(ProcessingStatus.ERROR);
     }
-  }, [description, scopeContext, jobType, images, videoData, isProcessingVideo]);
+  }, [description, scopeContext, jobType, images, videoData, audioFiles, isProcessingVideo]);
 
   const handleSaveEditedScope = (updatedRooms: RoomData[]) => {
       setRooms(updatedRooms);
@@ -76,7 +86,7 @@ const ScopeGenerator: React.FC = () => {
   const isButtonDisabled = 
     status === ProcessingStatus.ANALYZING || 
     isProcessingVideo || 
-    (!description && images.length === 0 && !videoData);
+    (!description && images.length === 0 && !videoData && audioFiles.length === 0);
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-8">
@@ -159,6 +169,25 @@ const ScopeGenerator: React.FC = () => {
               </div>
             </div>
 
+            {/* Warning for Reconstruction */}
+            {jobType === 'R' && (
+              <div className="mt-4 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg animate-in">
+                <div className="flex items-start gap-3">
+                  <div className="text-amber-600 mt-0.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-amber-800 text-sm">Skeleton Mode Active</h4>
+                    <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                      AI detects <strong>structure & demolition only</strong>. 
+                      High-value finishes (Hardwood sanding, Plaster, Custom Millwork) 
+                      <strong> MUST be added manually</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <hr className="border-slate-100" />
 
             <div>
@@ -181,11 +210,13 @@ const ScopeGenerator: React.FC = () => {
                 <span className="bg-emerald-100 text-emerald-700 p-1.5 rounded-md">
                   <Wand2 size={18} />
                 </span> 
-                Evidence (Video/Photo)
+                Evidence (Video/Photo/Audio)
               </h2>
               <PhotoUploadZone 
                 images={images} 
                 onImagesChange={setImages} 
+                audioFiles={audioFiles} // <--- PASSING STATE
+                onAudioFilesChange={setAudioFiles} // <--- PASSING SETTER
                 videoData={videoData}
                 onVideoProcessed={(data) => {
                   setVideoData(data);
@@ -331,3 +362,4 @@ const ScopeGenerator: React.FC = () => {
 };
 
 export default ScopeGenerator;
+}

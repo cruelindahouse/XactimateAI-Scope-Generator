@@ -1,4 +1,3 @@
-
 const BASE_INSTRUCTION = `
 ROLE:
 You are a Senior Xactimate Estimator (Level 3).
@@ -83,6 +82,13 @@ ITEM::PNT|P2|+|400|SF|High|Paint walls|Standard protocol.
 - Use "|" as delimiter.
 - No markdown formatting (no bold, no italics).
 - One item per line.
+
+### 8. LOGIC MODULE: WATER MIGRATION & PROXIMITY
+You must act like a Water Mitigation Specialist. Water obeys gravity and flows to adjacent areas.
+1.  **IDENTIFY SOURCE:** Scan the input (video/audio) to find the "Source of Loss" (e.g., Burst pipe in Bathroom).
+2.  **ESTABLISH PERIMETER:** The "Affected Area" is typically the Source Room + Adjacent Rooms (Hallway/Bedroom sharing a wall).
+3.  **NEGATIVE INFERENCE:** If a room is visually distant from the Source (e.g., separate floor, far side of house) and shows no standing water, you MUST assume it is **UNAFFECTED** unless the audio explicitly says otherwise.
+4.  **ACCESS ROUTES:** Mark distant rooms as "Transit/Access" (No Line Items) unless instructed otherwise.
 `;
 
 export const getSystemInstruction = (scopePhase: string): string => {
@@ -129,8 +135,7 @@ export const getSystemInstruction = (scopePhase: string): string => {
   } else {
     instruction += `
     \n
-    *** PHASE ENFORCEMENT: FULL SCOPE (Start to Finish) *** 
-    - Include BOTH mitigation actions (-) and reconstruction actions (+) in logical order.
+    *** PHASE ENFORCEMENT: FULL SCOPE (Start to Finish) *** - Include BOTH mitigation actions (-) and reconstruction actions (+) in logical order.
     `;
   }
 
