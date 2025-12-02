@@ -1,5 +1,18 @@
+/**
+ * GEMINI SERVICE - "Two-Pass" Architecture
+ * 
+ * Pass 1 (NEW): Audio → Transcription (text with timestamps)
+ * Pass 2: Video Frames + Text Context → Scope Analysis
+ * 
+ * This solves the "Audio Deafness" problem where raw audio
+ * gets only ~2% attention weight vs video frames.
+ * By converting audio to text first, it becomes an INSTRUCTION
+ * with proper weight in the generation process.
+ */
+
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { rateLimiter } from "./rateLimiter";
+import { transcribeAudio, transcribeMultipleAudio } from "./transcriptionService";
 import { LineItem, RoomData, ProjectMetadata, ExtractedData, JobType } from "../types";
 import { sanitizeLineItem, sortScopeItems } from "../utils/xactimateRules";
 import { getSystemInstruction, buildUserPrompt } from "../utils/aiConfig";
@@ -79,45 +92,136 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
+/**
+ * MAIN FUNCTION: Two-Pass Scope Generation
+ * 
+ * Pass 1: Transcribe all audio sources to text
+ * Pass 2: Analyze video frames with voice context injected as text
+ */
 export const generateScope = async (
   description: string,
   scopeContext: string,
   jobType: JobType,
   base64Images: string[] = [],
   videoData?: ExtractedData | null,
-  audioFiles: File[] = [] 
+  audioFiles: File[] = [],
+  onProgress?: (stage: string, detail?: string) => void
 ): Promise<{ rooms: RoomData[], metadata: ProjectMetadata }> => {
   return rateLimiter.enqueue(async () => {
     const ai = new GoogleGenAI({ apiKey: API_KEY });
     const scopePhase = jobType === 'R' ? 'reconstruction' : 'mitigation';
-    const parts: any[] = [{ text: buildUserPrompt(`${description} [Scope Context: ${scopeContext}]`, jobType) }];
-
-    // 1. Add Video Data (Frames + Audio)
-    if (videoData) {
-      if (videoData.audio) {
-        parts.push({ inlineData: { mimeType: "audio/wav", data: videoData.audio } });
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // PASS 1: AUDIO TRANSCRIPTION (NEW)
+    // ═══════════════════════════════════════════════════════════════════
+    let voiceContext = "";
+    
+    onProgress?.("Transcribing audio", "Converting voice to text...");
+    console.log("═".repeat(60));
+    console.log("  PASS 1: AUDIO TRANSCRIPTION");
+    console.log("═".repeat(60));
+    
+    try {
+      // Collect all audio sources
+      const audioSources: Array<{ base64: string; mimeType: string; label?: string }> = [];
+      
+      // Source 1: Video's embedded audio
+      if (videoData?.audio) {
+        audioSources.push({
+          base64: videoData.audio,
+          mimeType: "audio/wav",
+          label: "Video Walkthrough"
+        });
+        console.log("📹 Found embedded video audio");
       }
+      
+      // Source 2: Separate audio files
+      for (let i = 0; i < audioFiles.length; i++) {
+        const audioFile = audioFiles[i];
+        const base64Audio = await fileToBase64(audioFile);
+        audioSources.push({
+          base64: base64Audio,
+          mimeType: audioFile.type || "audio/mp3",
+          label: `Voice Note ${i + 1}`
+        });
+        console.log(`🎤 Found separate audio file: ${audioFile.name}`);
+      }
+      
+      // Execute transcription
+      if (audioSources.length > 0) {
+        console.log(`🔄 Transcribing ${audioSources.length} audio source(s)...`);
+        
+        const transcriptionResult = audioSources.length === 1
+          ? await transcribeAudio(audioSources[0].base64, audioSources[0].mimeType)
+          : await transcribeMultipleAudio(audioSources);
+        
+        if (transcriptionResult.success) {
+          voiceContext = transcriptionResult.formattedContext;
+          console.log(`✅ Transcription complete: ${transcriptionResult.segments.length} segments`);
+          console.log("Preview:", transcriptionResult.rawTranscript.substring(0, 200) + "...");
+        } else {
+          console.warn("⚠️ Transcription returned empty - continuing without voice context");
+        }
+      } else {
+        console.log("ℹ️ No audio sources found - skipping Pass 1");
+      }
+      
+    } catch (error) {
+      // GRACEFUL DEGRADATION: If transcription fails, continue with visual analysis
+      console.error("❌ Pass 1 failed:", error);
+      console.log("⚠️ Continuing with Pass 2 (visual only) - graceful degradation");
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // PASS 2: VISUAL ANALYSIS WITH VOICE CONTEXT
+    // ═══════════════════════════════════════════════════════════════════
+    onProgress?.("Analyzing scope", "Processing visual data with voice context...");
+    console.log("\n" + "═".repeat(60));
+    console.log("  PASS 2: VISUAL ANALYSIS");
+    console.log("═".repeat(60));
+    
+    // Build the prompt with voice context INJECTED AS TEXT
+    const basePrompt = buildUserPrompt(`${description} [Scope Context: ${scopeContext}]`, jobType);
+    
+    // The KEY change: Voice context goes BEFORE the main prompt
+    // This gives it higher priority in the attention mechanism
+    const fullPrompt = voiceContext 
+      ? `${voiceContext}\n\n${basePrompt}`
+      : basePrompt;
+    
+    if (voiceContext) {
+      console.log("✅ Voice context injected into prompt");
+      console.log(`   Context length: ${voiceContext.length} characters`);
+    }
+    
+    // Build parts array - VIDEO FRAMES + TEXT ONLY (no raw audio)
+    const parts: any[] = [{ text: fullPrompt }];
+
+    // Add Video Frames (NO AUDIO - it's already transcribed)
+    if (videoData) {
+      console.log(`📹 Adding ${videoData.frames.length} video frames`);
       videoData.frames.forEach(frame => {
         parts.push({ inlineData: { mimeType: "image/jpeg", data: frame } });
       });
     }
 
-    // 2. Add Separate Audio Files
-    for (const audioFile of audioFiles) {
-      const base64Audio = await fileToBase64(audioFile);
-      const mimeType = audioFile.type || "audio/mp3";
-      parts.push({ inlineData: { mimeType, data: base64Audio } });
+    // Add Photos
+    if (base64Images.length > 0) {
+      console.log(`📸 Adding ${base64Images.length} photos`);
+      base64Images.forEach(img => {
+        const mimeMatch = img.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+        const data = img.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
+        parts.push({ inlineData: { mimeType, data } });
+      });
     }
 
-    // 3. Add Photos
-    base64Images.forEach(img => {
-      const mimeMatch = img.match(/^data:(image\/[a-zA-Z+]+);base64,/);
-      const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
-      const data = img.replace(/^data:image\/[a-zA-Z+]+;base64,/, "");
-      parts.push({ inlineData: { mimeType, data } });
-    });
+    // NOTE: We intentionally do NOT include raw audio here anymore
+    // The voice information is now in `fullPrompt` as text
 
     try {
+      console.log("🚀 Sending to Gemini...");
+      
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
         contents: { parts },
@@ -143,20 +247,23 @@ export const generateScope = async (
       }
       if (!rawText) throw new Error("Empty response from AI.");
 
+      console.log("✅ Gemini response received");
+      
+      // Parse the response
       const parsedResult = parseTextResponse(rawText);
 
-      // --- CORRECCIÓN CRÍTICA AQUÍ ---
-      // Antes: parsedResult.rooms = sanitizeRooms(...) -> ERROR
-      // Ahora: Desempaquetamos el objeto correctamente
+      // Apply Room Sanitizer (dedupe ghost rooms)
       const sanitized = sanitizeRooms(parsedResult.rooms);
-      parsedResult.rooms = sanitized.rooms; // <--- ESTO ES LO QUE FALTABA
+      parsedResult.rooms = sanitized.rooms;
       
-      // Log para debugging (opcional)
       if (sanitized.warnings.length > 0) {
-          console.log("Sanitizer Logic:", sanitized.warnings);
+        console.log("🧹 Room Sanitizer:", sanitized.warnings);
       }
-      // -------------------------------
+      if (sanitized.mergeCount > 0) {
+        console.log(`✅ Deduplicated ${sanitized.mergeCount} ghost room(s)`);
+      }
 
+      // Apply Logistics Engine
       parsedResult.rooms = enrichScopeWithLogistics(
         parsedResult.rooms, 
         parsedResult.metadata.severity_score, 
@@ -165,11 +272,24 @@ export const generateScope = async (
         jobType
       );
 
+      console.log("\n" + "═".repeat(60));
+      console.log("  TWO-PASS COMPLETE");
+      console.log("═".repeat(60));
+      console.log(`   Rooms: ${parsedResult.rooms.length}`);
+      console.log(`   Total Items: ${parsedResult.rooms.reduce((sum, r) => sum + r.items.length, 0)}`);
+      console.log(`   Voice Context: ${voiceContext ? 'YES' : 'NO'}`);
+      
       return parsedResult;
 
     } catch (error) {
-      console.error("Gemini Core Engine Error:", error);
+      console.error("❌ Gemini Core Engine Error:", error);
       throw error;
     }
   });
 };
+
+/**
+ * LEGACY EXPORT: For backwards compatibility
+ * Some components might still import specific functions
+ */
+export { transcribeAudio, transcribeMultipleAudio };

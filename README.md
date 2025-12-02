@@ -1,20 +1,70 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# XactimateAI Scope Generator
 
-# Run and deploy your AI Studio app
+## Architecture: "Gemini Two-Pass" Strategy
 
-This contains everything you need to run your app locally.
+This application uses a **Two-Pass** architecture to solve the "Audio Deafness" problem in multimodal LLMs.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1r9bpesk-JeTYUn7iAGbuMe4SCeT5Nab8
+### The Problem
+When processing video + audio simultaneously:
+- Video frames: ~46,000 tokens (98% of attention)
+- Audio: ~750 tokens (2% of attention)
+
+Raw audio gets **drowned out** by visual tokens, causing the AI to ignore voice commands.
+
+### The Solution
+```
+Pass 1: Audio → Gemini → Timestamped Transcript (Text)
+Pass 2: Video Frames + Text Transcript → Scope Analysis
+```
+
+By converting audio to text FIRST, voice commands become **instructions** with proper weight in the attention mechanism.
+
+## Files Structure
+
+```
+services/
+├── geminiService.ts        # Main orchestrator (Two-Pass logic)
+├── transcriptionService.ts # Pass 1: Audio → Text with timestamps
+└── rateLimiter.ts          # API rate limiting
+
+utils/
+├── logisticsEngine.ts      # 10 rules for General Conditions
+├── roomSanitizer.ts        # Ghost room deduplication
+├── xactimateRules.ts       # Code validation
+└── mediaExtractor.ts       # Video frame extraction
+```
+
+## Logistics Engine v13 Rules
+
+| # | Code | Trigger |
+|---|------|---------|
+| 1 | DMO DBR/DTRLR | Debris removal based on volume |
+| 2 | TMP TLT | Portable toilet (fire/catastrophic) |
+| 3 | LAB SUP | Supervision (complexity-based) |
+| 4 | TMP FNC | Temporary fencing (exterior) |
+| 5 | WTR BARR + NAFAN | Containment (demo/severity) |
+| 6 | WTR EQ | Equipment setup |
+| 7 | WTR ESRVD | Emergency service call |
+| 8 | DMO MASKFL | Floor protection |
+| 9 | CON ROOM | Content manipulation |
+| 10 | Implicit Demo | Install items assume prior removal |
+
+## Voice Command Examples
+
+The estimator can speak commands during video walkthrough:
+
+- `"This is the master bathroom"` → Sets room name
+- `"There's mold behind the mirror, add HMR"` → Adds hidden damage
+- `"Skip this room, it's unaffected"` → Excludes from scope
+- `"Clean carpet only, no reconstruction"` → Limits scope
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+**Prerequisites:** Node.js
 
+1. Install dependencies: `npm install`
+2. Set `API_KEY` in `.env.local` to your Gemini API key
+3. Run the app: `npm run dev`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Version
+v13 - Two-Pass Architecture + Logistics Engine v13
